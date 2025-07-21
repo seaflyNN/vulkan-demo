@@ -3,8 +3,6 @@
 #include <iostream>
 #include <vector>
 
-#include <instance.hpp>
-
 int main() {
 
   VkApplicationInfo appInfo = {};
@@ -173,4 +171,41 @@ int main() {
               << q.minImageTransferGranularity.height << ", "
               << q.minImageTransferGranularity.depth << ")" << std::endl;
   }
+
+  // 创建逻辑设备
+
+  // 选择支持图形的队列族
+  int graphicsQueueFamily = -1;
+  for (uint32_t i = 0; i < queueFamilyCount; ++i) {
+    if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+      graphicsQueueFamily = i;
+      break;
+    }
+  }
+  if (graphicsQueueFamily == -1) {
+    std::cerr << "No graphics queue family found!" << std::endl;
+    return -1;
+  }
+
+  float queuePriority = 1.0f;
+  VkDeviceQueueCreateInfo queueCreateInfo = {};
+  queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+  queueCreateInfo.queueFamilyIndex = graphicsQueueFamily;
+  queueCreateInfo.queueCount = 1;
+  queueCreateInfo.pQueuePriorities = &queuePriority;
+
+  VkDeviceCreateInfo deviceCreateInfo = {};
+  deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+  deviceCreateInfo.queueCreateInfoCount = 1;
+  deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+  deviceCreateInfo.pEnabledFeatures = &out_feat; // 启用所有物理设备支持的特性
+
+  VkDevice device;
+  result = vkCreateDevice(physicalDevices[0], &deviceCreateInfo, nullptr, &device);
+  if (result != VK_SUCCESS) {
+    std::cerr << "Failed to create logical device!" << std::endl;
+    return -1;
+  }
+  std::cout << "Logical device created successfully." << std::endl;
+
 }
