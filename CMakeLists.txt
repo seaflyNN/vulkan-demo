@@ -18,3 +18,6 @@ target_link_libraries(vulkan-hello-world PRIVATE
     ${Vulkan_LIBRARIES}
     SDL3::SDL3
 )
+if(MSVC)
+    target_compile_options(vulkan-hello-world PRIVATE /utf-8)
+endif()

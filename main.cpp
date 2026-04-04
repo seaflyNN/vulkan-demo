@@ -12,9 +12,11 @@ int main() {
     return -1;
   }
 
+  int width = 800;
+  int height = 600;
   uint64_t window_flag = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE |
                          SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-  auto window = SDL_CreateWindow("Vulkan", 800, 600, window_flag);
+  auto window = SDL_CreateWindow("Vulkan", width, height, window_flag);
   if (!window) {
     SDL_Quit();
     return -1;
@@ -37,7 +39,8 @@ int main() {
 
   //
   auto ctx = std::make_unique<hf::Context>(
-      extensions, [&](vk::Instance instance) -> vk::SurfaceKHR {
+      extensions,
+      [&](vk::Instance instance) -> vk::SurfaceKHR {
         VkSurfaceKHR surface = VK_NULL_HANDLE;
         if (!SDL_Vulkan_CreateSurface(window, static_cast<VkInstance>(instance),
                                       nullptr, &surface)) {
@@ -46,7 +49,8 @@ int main() {
           return VK_NULL_HANDLE;
         }
         return vk::SurfaceKHR(surface);
-      });
+      },
+      width, height);
   SDL_ShowWindow(window);
 
   bool running = true;
