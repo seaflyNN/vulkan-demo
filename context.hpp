@@ -218,7 +218,7 @@ private:
     vk::ApplicationInfo app_info;
     app_info.setApiVersion(VK_API_VERSION_1_3);
     // helper::print_all_layers();
-    std::vector<const char *> layers{"VK_LAYER_KHRONOS_validation"};
+    std::array<const char *, 1> layers{"VK_LAYER_KHRONOS_validation"};
     vk::InstanceCreateInfo create_info;
     create_info.setPApplicationInfo(&app_info)
         .setPEnabledLayerNames(layers)
@@ -264,7 +264,7 @@ private:
       que_create_infos.push_back(std::move(present_queue_create_info));
     }
 
-    std::vector<const char *> device_extensions{"VK_KHR_swapchain"};
+    std::array<const char *, 1> device_extensions{"VK_KHR_swapchain"};
     create_info.setQueueCreateInfos(que_create_infos)
         .setPEnabledExtensionNames(device_extensions);
     return phy_device.createDevice(create_info);
