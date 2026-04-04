@@ -264,7 +264,8 @@ private:
       que_create_infos.push_back(std::move(present_queue_create_info));
     }
 
-    std::array<const char *, 1> device_extensions{"VK_KHR_swapchain"};
+    std::array<const char *, 1> device_extensions{
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     create_info.setQueueCreateInfos(que_create_infos)
         .setPEnabledExtensionNames(device_extensions);
     return phy_device.createDevice(create_info);
