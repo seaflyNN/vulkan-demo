@@ -70,6 +70,7 @@ public:
         .setSurface(surface)
         .setImageColorSpace(swapchain_info.format.colorSpace)
         .setImageFormat(swapchain_info.format.format)
+        .setImageExtent(swapchain_info.extent)
         .setMinImageCount(swapchain_info.image_count)
         .setPresentMode(swapchain_info.present_mode);
 
@@ -199,6 +200,7 @@ public:
   }
 
   ~Context() {
+    swapchain = SwapChain{};
     device.destroy();
     if (surface != VK_NULL_HANDLE) {
       instance.destroySurfaceKHR(surface);
@@ -262,7 +264,9 @@ private:
       que_create_infos.push_back(std::move(present_queue_create_info));
     }
 
-    create_info.setQueueCreateInfos(que_create_infos);
+    std::vector<const char *> device_extensions{"VK_KHR_swapchain"};
+    create_info.setQueueCreateInfos(que_create_infos)
+        .setPEnabledExtensionNames(device_extensions);
     return phy_device.createDevice(create_info);
   }
 
