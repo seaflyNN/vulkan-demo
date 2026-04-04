@@ -3,7 +3,9 @@
 
 //
 #include <cassert>
+#include <functional>
 #include <iostream>
+#include <optional>
 #include <ranges>
 #include <vector>
 
@@ -24,20 +26,31 @@ class Context {
   };
 
 public:
+  using instance_extensions_t = std::vector<const char *>;
+  using create_surface_fn_t =
+      std::function<vk::SurfaceKHR(const vk::Instance &)>;
+
+public:
   vk::Instance instance;
   vk::PhysicalDevice phy_device;
   QueueFamilyIndices que_family_indices;
+  vk::SurfaceKHR surface;
   vk::Device device;
 
 public:
-  Context() {
-    instance = create_instance();
+  Context(const instance_extensions_t &instance_extensions,
+          create_surface_fn_t fn) {
+    instance = create_instance(instance_extensions);
     assert(instance != VK_NULL_HANDLE);
     phy_device = pickup_physical_device(instance);
     assert(phy_device != VK_NULL_HANDLE);
     que_family_indices =
         query_family_indices(phy_device, vk::QueueFlagBits::eGraphics);
     assert(que_family_indices.graphics_family.has_value());
+
+    surface = fn(instance);
+    assert(surface != VK_NULL_HANDLE);
+
     device = create_device(phy_device);
     assert(device != VK_NULL_HANDLE);
     auto graphic_que =
@@ -46,6 +59,10 @@ public:
 
   ~Context() {
     device.destroy();
+    if (surface != VK_NULL_HANDLE) {
+      instance.destroySurfaceKHR(surface);
+      surface = VK_NULL_HANDLE;
+    }
     instance.destroy();
   }
 
@@ -53,13 +70,16 @@ public:
   Context &operator=(const Context &) = delete;
 
 private:
-  static vk::Instance create_instance() {
+  static vk::Instance
+  create_instance(const instance_extensions_t &instance_extensions) {
     vk::ApplicationInfo app_info;
     app_info.setApiVersion(VK_API_VERSION_1_3);
     // helper::print_all_layers();
     std::vector<const char *> layers{"VK_LAYER_KHRONOS_validation"};
     vk::InstanceCreateInfo create_info;
-    create_info.setPApplicationInfo(&app_info).setPEnabledLayerNames(layers);
+    create_info.setPApplicationInfo(&app_info)
+        .setPEnabledLayerNames(layers)
+        .setPEnabledExtensionNames(instance_extensions);
     return vk::createInstance(create_info);
   }
 
