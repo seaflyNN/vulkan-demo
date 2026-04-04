@@ -1,8 +1,1 @@
-BasedOnStyle: Google
-ContinuationIndentWidth: 4
-AlignAfterOpenBracket: false
-AllowShortFunctionsOnASingleLine: Empty
-BreakBeforeBraces: Attach
-# Align method calls relative to the previous line
-ColumnLimit: 0 # Disables column wrapping
-# Save and format your code
+BasedOnStyle: llvm
