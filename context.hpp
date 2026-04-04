@@ -90,7 +90,7 @@ public:
 
   ~SwapChain() {
     if (*this)
-      device.destroySwapchainKHR(swapchain);
+      device.destroySwapchainKHR(std::exchange(swapchain, VK_NULL_HANDLE));
   }
   SwapChain(const SwapChain &) = delete;
   SwapChain &operator=(const SwapChain &) = delete;
@@ -119,6 +119,7 @@ public:
     auto formats = phy_device.getSurfaceFormatsKHR(surface);
 
     SwapChainInfo info;
+    info.format = formats[0];
     for (auto &&format : formats) {
       if (format == expect_format) {
         info.format = format;
@@ -154,7 +155,7 @@ public:
   using create_surface_fn_t =
       std::function<vk::SurfaceKHR(const vk::Instance &)>;
 
-public:
+private:
   int width{0};
   int height{0};
   vk::Instance instance;
