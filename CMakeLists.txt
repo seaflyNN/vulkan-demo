@@ -12,13 +12,41 @@ find_program(GLSLC_EXECUTABLE
     "C:/VulkanSDK/1.4.341.1/Bin"
     REQUIRED
 )
-execute_process(COMMAND ${GLSLC_EXECUTABLE} ${CMAKE_SOURCE_DIR}/shader/shader.vert
-    -o ${CMAKE_SOURCE_DIR}/shader/vert.spv)
+
+set(SHADER_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/shader)
+set(SHADER_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/shader)
+
+set(VERT_SHADER_SOURCE ${SHADER_SOURCE_DIR}/shader.vert)
+set(FRAG_SHADER_SOURCE ${SHADER_SOURCE_DIR}/shader.frag)
+set(VERT_SHADER_SPV ${SHADER_BINARY_DIR}/vert.spv)
+set(FRAG_SHADER_SPV ${SHADER_BINARY_DIR}/frag.spv)
+
+add_custom_command(
+    OUTPUT ${VERT_SHADER_SPV}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_BINARY_DIR}
+    COMMAND ${GLSLC_EXECUTABLE} ${VERT_SHADER_SOURCE} -o ${VERT_SHADER_SPV}
+    DEPENDS ${VERT_SHADER_SOURCE}
+    COMMENT "Compiling vertex shader"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT ${FRAG_SHADER_SPV}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_BINARY_DIR}
+    COMMAND ${GLSLC_EXECUTABLE} ${FRAG_SHADER_SOURCE} -o ${FRAG_SHADER_SPV}
+    DEPENDS ${FRAG_SHADER_SOURCE}
+    COMMENT "Compiling fragment shader"
+    VERBATIM
+)
+
+add_custom_target(shaders DEPENDS ${VERT_SHADER_SPV} ${FRAG_SHADER_SPV})
 
 add_subdirectory(3rd/SDL-release-3.4.2 sdl3)
 
 add_executable(vulkan-hello-world main.cpp)
+add_dependencies(vulkan-hello-world shaders)
 target_include_directories(vulkan-hello-world PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(vulkan-hello-world PRIVATE HF_SHADER_DIR="${SHADER_BINARY_DIR}")
 
 message("${Vulkan_INCLUDE_DIRS}")
 message("${Vulkan_LIBRARIES}")

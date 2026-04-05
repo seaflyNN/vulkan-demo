@@ -1,5 +1,6 @@
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "context.hpp"
@@ -51,7 +52,14 @@ int main() {
         return vk::SurfaceKHR(surface);
       },
       width, height);
-  ctx->init_shader("shader/vert.spv", "shader/vert.spv");
+
+#ifdef HF_SHADER_DIR
+  const std::string shader_dir = HF_SHADER_DIR;
+#else
+  const std::string shader_dir = "shader";
+#endif
+
+  ctx->init_shader(shader_dir + "/vert.spv", shader_dir + "/frag.spv");
   ctx->init_render_process();
   SDL_ShowWindow(window);
 

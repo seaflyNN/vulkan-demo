@@ -192,7 +192,7 @@ public:
 // 垃圾shader封装
 struct Shader {
   vk::Device device_;
-  vk::ShaderStageFlagBits stage_;
+  vk::ShaderStageFlagBits stage_{vk::ShaderStageFlagBits::eVertex};
   vk::ShaderModule module_;
 
 public:
@@ -215,12 +215,14 @@ public:
   Shader &operator=(const Shader &) = delete;
   Shader(Shader &&rhs) noexcept
       : device_(std::exchange(rhs.device_, {})),
+        stage_(std::exchange(rhs.stage_, vk::ShaderStageFlagBits::eVertex)),
         module_(std::exchange(rhs.module_, {})) {}
   Shader &operator=(Shader &&rhs) noexcept {
     if (this != &rhs) {
       if (module_)
         device_.destroyShaderModule(module_);
       device_ = std::exchange(rhs.device_, {});
+      stage_ = std::exchange(rhs.stage_, vk::ShaderStageFlagBits::eVertex);
       module_ = std::exchange(rhs.module_, {});
     }
     return *this;
@@ -233,24 +235,64 @@ public:
 // 渲染管线
 class RenderProcess {
   // vk::GraphicsPipelineCreateInfo和vk::ComputePipelineCreateInfo两种管线
+  vk::Device device_;
+  vk::PipelineLayout pipeline_layout_;
+  vk::RenderPass render_pass_;
   vk::Pipeline pipeline_;
 
 public:
   RenderProcess() = default;
-  ~RenderProcess() {}
+  ~RenderProcess() {
+    if (!device_)
+      return;
+    if (pipeline_)
+      device_.destroyPipeline(std::exchange(pipeline_, VK_NULL_HANDLE));
+    if (pipeline_layout_)
+      device_.destroyPipelineLayout(
+          std::exchange(pipeline_layout_, VK_NULL_HANDLE));
+    if (render_pass_)
+      device_.destroyRenderPass(std::exchange(render_pass_, VK_NULL_HANDLE));
+  }
   RenderProcess(const RenderProcess &) = delete;
   RenderProcess &operator=(const RenderProcess &) = delete;
   RenderProcess(RenderProcess &&rhs) noexcept
-      : pipeline_(std::exchange(rhs.pipeline_, {})) {}
+      : device_(std::exchange(rhs.device_, {})),
+        pipeline_layout_(std::exchange(rhs.pipeline_layout_, {})),
+        render_pass_(std::exchange(rhs.render_pass_, {})),
+        pipeline_(std::exchange(rhs.pipeline_, {})) {}
   RenderProcess &operator=(RenderProcess &&rhs) noexcept {
     if (this != &rhs) {
+      if (device_) {
+        if (pipeline_)
+          device_.destroyPipeline(pipeline_);
+        if (pipeline_layout_)
+          device_.destroyPipelineLayout(pipeline_layout_);
+        if (render_pass_)
+          device_.destroyRenderPass(render_pass_);
+      }
+      device_ = std::exchange(rhs.device_, {});
+      pipeline_layout_ = std::exchange(rhs.pipeline_layout_, {});
+      render_pass_ = std::exchange(rhs.render_pass_, {});
       pipeline_ = std::exchange(rhs.pipeline_, {});
     }
     return *this;
   }
 
-  RenderProcess(vk::Device device, std::vector<Shader> shaders) {
+  RenderProcess(vk::Device device, std::vector<Shader> shaders, int w, int h)
+      : device_(device) {
     vk::GraphicsPipelineCreateInfo create_info;
+
+    std::vector<vk::PipelineShaderStageCreateInfo> shader_stage_infos;
+    shader_stage_infos.reserve(shaders.size());
+    for (const auto &shader : shaders) {
+      vk::PipelineShaderStageCreateInfo shader_stage_info;
+      shader_stage_info.setStage(shader.stage())
+          .setModule(shader.module())
+          .setPName("main");
+      shader_stage_infos.push_back(shader_stage_info);
+    }
+    create_info.setStages(shader_stage_infos);
+
     // 1. vertex input
     vk::PipelineVertexInputStateCreateInfo vertex_input_info;
     create_info.setPVertexInputState(&vertex_input_info);
@@ -261,15 +303,17 @@ public:
         vk::PrimitiveTopology::eTriangleList);
     create_info.setPInputAssemblyState(&input_assembly_info);
 
-    // 3. Shader
-    for (auto &shader : shaders) {
-      vk::PipelineShaderStageCreateInfo shader_stage_info;
-      shader_stage_info.setStage(shader.stage())
-          .setModule(shader.module())
-          .setPName("main");
-    }
+    // 4. viewport
+    vk::PipelineViewportStateCreateInfo viewport_info;
+    vk::Viewport viewport(0.0f, 0.0f, static_cast<float>(w),
+                          static_cast<float>(h), 0.0f, 1.0f);
+    vk::Rect2D scissor(
+        vk::Offset2D{0, 0},
+        vk::Extent2D{static_cast<uint32_t>(w), static_cast<uint32_t>(h)});
+    viewport_info.setViewports(viewport).setScissors(scissor);
+    create_info.setPViewportState(&viewport_info);
 
-    // 4. Rasterization, 光栅化阶段, 线框模式, 背面剔除, 深度测试等
+    // 5. Rasterization, 光栅化阶段, 线框模式, 背面剔除, 深度测试等
     vk::PipelineRasterizationStateCreateInfo rasterization_info;
     rasterization_info.setRasterizerDiscardEnable(false)
         .setCullMode(vk::CullModeFlagBits::eBack)
@@ -280,15 +324,15 @@ public:
         .setDepthBiasEnable(false);
     create_info.setPRasterizationState(&rasterization_info);
 
-    // 5. Multisampling, 多重采样, 抗锯齿
+    // 6. Multisampling, 多重采样, 抗锯齿
     vk::PipelineMultisampleStateCreateInfo multisample_info;
     multisample_info.setRasterizationSamples(vk::SampleCountFlagBits::e1)
         .setSampleShadingEnable(false);
     create_info.setPMultisampleState(&multisample_info);
 
-    // 6. test - stencil, 深度测试和模板测试
+    // 7. test - stencil, 深度测试和模板测试
 
-    // 7. color blending, 颜色混合, alpha混合等
+    // 8. color blending, 颜色混合, alpha混合等
     vk::PipelineColorBlendStateCreateInfo blend_info;
     vk::PipelineColorBlendAttachmentState blend_attachment;
     blend_attachment.setBlendEnable(false).setColorWriteMask(
@@ -297,7 +341,44 @@ public:
     blend_info.setLogicOpEnable(false).setAttachments(blend_attachment);
     create_info.setPColorBlendState(&blend_info);
 
-    pipeline_ = device.createGraphicsPipeline({}, create_info).value;
+    vk::PipelineLayoutCreateInfo pipeline_layout_info;
+    pipeline_layout_ = device_.createPipelineLayout(pipeline_layout_info);
+    create_info.setLayout(pipeline_layout_);
+
+    vk::AttachmentDescription color_attachment;
+    color_attachment.setFormat(vk::Format::eB8G8R8A8Srgb)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setLoadOp(vk::AttachmentLoadOp::eClear)
+        .setStoreOp(vk::AttachmentStoreOp::eStore)
+        .setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
+        .setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
+        .setInitialLayout(vk::ImageLayout::eUndefined)
+        .setFinalLayout(vk::ImageLayout::ePresentSrcKHR);
+
+    vk::AttachmentReference color_attachment_ref;
+    color_attachment_ref.setAttachment(0).setLayout(
+        vk::ImageLayout::eColorAttachmentOptimal);
+
+    vk::SubpassDescription subpass;
+    subpass.setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
+        .setColorAttachments(color_attachment_ref);
+
+    vk::SubpassDependency dependency;
+    dependency.setSrcSubpass(VK_SUBPASS_EXTERNAL)
+        .setDstSubpass(0)
+        .setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+        .setDstStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+        .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentWrite);
+
+    vk::RenderPassCreateInfo render_pass_info;
+    render_pass_info.setAttachments(color_attachment)
+        .setSubpasses(subpass)
+        .setDependencies(dependency);
+    render_pass_ = device_.createRenderPass(render_pass_info);
+
+    create_info.setRenderPass(render_pass_).setSubpass(0);
+
+    pipeline_ = device_.createGraphicsPipeline({}, create_info).value;
   }
 };
 
@@ -361,6 +442,7 @@ public:
   }
 
   ~Context() {
+    render_process = RenderProcess{};
     swapchain = SwapChain{};
     // todo: 把device之类的也raii化才行
     device.destroy();
@@ -392,7 +474,7 @@ public:
                          helper::read_file(vertex_shader_path));
     shaders.emplace_back(device, vk::ShaderStageFlagBits::eFragment,
                          helper::read_file(fragment_shader_path));
-    render_process = RenderProcess(device, std::move(shaders));
+    render_process = RenderProcess(device, std::move(shaders), width, height);
   }
 
 private:
