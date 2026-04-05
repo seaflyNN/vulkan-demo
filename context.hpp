@@ -37,6 +37,9 @@ class SwapChain {
   vk::Device device;
   vk::SwapchainKHR swapchain;
 
+  std::vector<vk::Image> images;
+  std::vector<vk::ImageView> image_views;
+
 public:
   struct SwapChainInfo {
     vk::SurfaceFormatKHR format;
@@ -89,8 +92,12 @@ public:
   }
 
   ~SwapChain() {
-    if (*this)
-      device.destroySwapchainKHR(std::exchange(swapchain, VK_NULL_HANDLE));
+    if (!*this)
+      return;
+
+    for (auto &view : image_views)
+      device.destroyImageView(view);
+    device.destroySwapchainKHR(std::exchange(swapchain, VK_NULL_HANDLE));
   }
   SwapChain(const SwapChain &) = delete;
   SwapChain &operator=(const SwapChain &) = delete;
@@ -109,6 +116,37 @@ public:
   }
 
   operator bool() const { return swapchain && device; }
+
+  // todo: 这里应该缓存图像, 不应该每次调用都获取
+  void get_images_and_image_views() {
+    assert(*this);
+    images = device.getSwapchainImagesKHR(swapchain);
+  }
+
+  void get_views() {
+    assert(*this);
+    assert(!images.empty());
+
+    image_views.resize(images.size());
+    for (int64_t i = 0; i < static_cast<int64_t>(images.size()); i++) {
+      vk::ImageViewCreateInfo create_info;
+      vk::ComponentMapping mapping; // rgb映射,默认都是identity, 比如rgb变成bgr?
+      vk::ImageSubresourceRange
+          range; // 视图访问的图像子资源范围, 比如访问mipmap的第几层,
+                 // 立方体贴图的哪个面等
+      range.setBaseMipLevel(0)
+          .setLevelCount(1)
+          .setBaseArrayLayer(0)
+          .setLayerCount(1)
+          .setAspectMask(vk::ImageAspectFlagBits::eColor);
+
+      create_info.setImage(images[i])
+          .setViewType(vk::ImageViewType::e2D)
+          .setFormat(vk::Format::eB8G8R8A8Srgb)
+          .setSubresourceRange(range);
+      image_views[i] = device.createImageView(create_info);
+    }
+  }
 
 public:
   static SwapChainInfo query_swapchain_support(
