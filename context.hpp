@@ -345,6 +345,7 @@ public:
     pipeline_layout_ = device_.createPipelineLayout(pipeline_layout_info);
     create_info.setLayout(pipeline_layout_);
 
+    // 使用swapchain的图像的layout作为color_attachment的layout
     vk::AttachmentDescription color_attachment;
     color_attachment.setFormat(vk::Format::eB8G8R8A8Srgb)
         .setSamples(vk::SampleCountFlagBits::e1)
@@ -356,6 +357,7 @@ public:
         .setFinalLayout(vk::ImageLayout::ePresentSrcKHR);
 
     vk::AttachmentReference color_attachment_ref;
+    // 这里的纹理引用就是上面定义的color_attachment数组, 0是color_attachment在render pass中的索引
     color_attachment_ref.setAttachment(0).setLayout(
         vk::ImageLayout::eColorAttachmentOptimal);
 
