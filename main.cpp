@@ -51,6 +51,7 @@ int main() {
         return vk::SurfaceKHR(surface);
       },
       width, height);
+  ctx->init_shader("shader/vert.spv", "shader/vert.spv");
   SDL_ShowWindow(window);
 
   bool running = true;

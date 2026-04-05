@@ -4,6 +4,16 @@ project(vulkan-hello-world C CXX)
 set(CMAKE_CXX_STANDARD 23)
 
 find_package(Vulkan REQUIRED)
+find_program(GLSLC_EXECUTABLE
+    NAMES glslc glslc.exe
+    HINTS
+    "$ENV{VULKAN_SDK}/Bin"
+    PATHS
+    "C:/VulkanSDK/1.4.341.1/Bin"
+    REQUIRED
+)
+execute_process(COMMAND ${GLSLC_EXECUTABLE} ${CMAKE_SOURCE_DIR}/shader/shader.vert
+    -o ${CMAKE_SOURCE_DIR}/shader/vert.spv)
 
 add_subdirectory(3rd/SDL-release-3.4.2 sdl3)
 

@@ -2,6 +2,8 @@
 
 #include <vulkan/vulkan.hpp>
 
+#include "utils.hpp"
+
 //
 #include <algorithm>
 #include <array>
@@ -187,6 +189,58 @@ public:
   }
 };
 
+// 垃圾shader封装
+class Shader {
+  vk::Device device;
+  vk::ShaderModule vert_module;
+  vk::ShaderModule frag_module;
+
+public:
+  Shader() = default;
+  Shader(vk::Device device, const std::string &vertex_source,
+         const std::string &fragment_source)
+      : device(device) {
+    vk::ShaderModuleCreateInfo create_info;
+    create_info.codeSize = vertex_source.size();
+    create_info.pCode =
+        reinterpret_cast<const uint32_t *>(vertex_source.data());
+    vert_module = device.createShaderModule(create_info);
+
+    create_info.codeSize = fragment_source.size();
+    create_info.pCode =
+        reinterpret_cast<const uint32_t *>(fragment_source.data());
+    frag_module = device.createShaderModule(create_info);
+  }
+  ~Shader() {
+    if (vert_module)
+      device.destroyShaderModule(std::exchange(vert_module, VK_NULL_HANDLE));
+
+    if (frag_module)
+      device.destroyShaderModule(std::exchange(frag_module, VK_NULL_HANDLE));
+  }
+  Shader(const Shader &) = delete;
+  Shader &operator=(const Shader &) = delete;
+  Shader(Shader &&rhs) noexcept
+      : device(std::exchange(rhs.device, {})),
+        vert_module(std::exchange(rhs.vert_module, {})),
+        frag_module(std::exchange(rhs.frag_module, {})) {}
+  Shader &operator=(Shader &&rhs) noexcept {
+    if (this != &rhs) {
+      if (vert_module)
+        device.destroyShaderModule(vert_module);
+      if (frag_module)
+        device.destroyShaderModule(frag_module);
+
+      device = std::exchange(rhs.device, {});
+      vert_module = std::exchange(rhs.vert_module, {});
+      frag_module = std::exchange(rhs.frag_module, {});
+    }
+    return *this;
+  }
+
+  operator bool() const { return vert_module && frag_module; }
+};
+
 class Context {
 public:
   using instance_extensions_t = std::vector<const char *>;
@@ -207,6 +261,8 @@ private:
   vk::Queue present_que;
 
   SwapChain swapchain;
+
+  Shader shader;
 
 public:
   Context(const instance_extensions_t &instance_extensions,
@@ -239,7 +295,9 @@ public:
   }
 
   ~Context() {
+    shader = Shader{};
     swapchain = SwapChain{};
+    // todo: 把device之类的也raii化才行
     device.destroy();
     if (surface != VK_NULL_HANDLE) {
       instance.destroySurfaceKHR(surface);
@@ -250,6 +308,13 @@ public:
 
   Context(const Context &) = delete;
   Context &operator=(const Context &) = delete;
+
+  void init_shader(const std::string &vertex_path,
+                   const std::string &fragment_path) {
+    auto vertex_source = helper::read_file(vertex_path);
+    auto fragment_source = helper::read_file(fragment_path);
+    shader = Shader(device, vertex_source, fragment_source);
+  }
 
 private:
   static vk::Instance
