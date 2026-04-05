@@ -61,6 +61,7 @@ int main() {
 
   ctx->init_shader(shader_dir + "/vert.spv", shader_dir + "/frag.spv");
   ctx->init_render_process();
+  ctx->create_framebuffers();
   SDL_ShowWindow(window);
 
   bool running = true;

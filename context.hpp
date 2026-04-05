@@ -35,7 +35,7 @@ struct QueueFamilyIndices {
   }
 };
 
-class SwapChain {
+struct SwapChain {
   vk::Device device;
   vk::SwapchainKHR swapchain;
 
@@ -233,7 +233,7 @@ public:
 };
 
 // 渲染管线
-class RenderProcess {
+struct RenderProcess {
   // vk::GraphicsPipelineCreateInfo和vk::ComputePipelineCreateInfo两种管线
   vk::Device device_;
   vk::PipelineLayout pipeline_layout_;
@@ -357,7 +357,8 @@ public:
         .setFinalLayout(vk::ImageLayout::ePresentSrcKHR);
 
     vk::AttachmentReference color_attachment_ref;
-    // 这里的纹理引用就是上面定义的color_attachment数组, 0是color_attachment在render pass中的索引
+    // 这里的纹理引用就是上面定义的color_attachment数组,
+    // 0是color_attachment在render pass中的索引
     color_attachment_ref.setAttachment(0).setLayout(
         vk::ImageLayout::eColorAttachmentOptimal);
 
@@ -413,6 +414,8 @@ private:
 
   RenderProcess render_process;
 
+  std::vector<vk::Framebuffer> framebuffers;
+
 public:
   Context(const instance_extensions_t &instance_extensions,
           create_surface_fn_t fn, int w, int h)
@@ -444,6 +447,9 @@ public:
   }
 
   ~Context() {
+    for (auto &framebuffer : framebuffers)
+      device.destroyFramebuffer(framebuffer);
+
     render_process = RenderProcess{};
     swapchain = SwapChain{};
     // todo: 把device之类的也raii化才行
@@ -477,6 +483,21 @@ public:
     shaders.emplace_back(device, vk::ShaderStageFlagBits::eFragment,
                          helper::read_file(fragment_shader_path));
     render_process = RenderProcess(device, std::move(shaders), width, height);
+  }
+
+  void create_framebuffers() {
+    framebuffers.resize(swapchain.images.size());
+    for (int64_t i = 0; i < static_cast<int64_t>(swapchain.images.size());
+         i++) {
+      vk::ImageView attachments[] = {swapchain.image_views[i]};
+      vk::FramebufferCreateInfo create_info;
+      create_info.setRenderPass(render_process.render_pass_)
+          .setAttachments(attachments)
+          .setWidth(width)
+          .setHeight(height)
+          .setLayers(1);
+      framebuffers[i] = device.createFramebuffer(create_info);
+    }
   }
 
 private:
