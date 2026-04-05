@@ -52,6 +52,7 @@ int main() {
       },
       width, height);
   ctx->init_shader("shader/vert.spv", "shader/vert.spv");
+  ctx->init_render_process();
   SDL_ShowWindow(window);
 
   bool running = true;

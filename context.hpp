@@ -190,55 +190,115 @@ public:
 };
 
 // 垃圾shader封装
-class Shader {
-  vk::Device device;
-  vk::ShaderModule vert_module;
-  vk::ShaderModule frag_module;
+struct Shader {
+  vk::Device device_;
+  vk::ShaderStageFlagBits stage_;
+  vk::ShaderModule module_;
 
 public:
-  Shader() = default;
-  Shader(vk::Device device, const std::string &vertex_source,
-         const std::string &fragment_source)
-      : device(device) {
+  Shader() {}
+  Shader(vk::Device device, vk::ShaderStageFlagBits stage,
+         const std::string &source)
+      : device_(device), stage_(stage) {
     vk::ShaderModuleCreateInfo create_info;
-    create_info.codeSize = vertex_source.size();
-    create_info.pCode =
-        reinterpret_cast<const uint32_t *>(vertex_source.data());
-    vert_module = device.createShaderModule(create_info);
-
-    create_info.codeSize = fragment_source.size();
-    create_info.pCode =
-        reinterpret_cast<const uint32_t *>(fragment_source.data());
-    frag_module = device.createShaderModule(create_info);
+    create_info.codeSize = source.size();
+    create_info.pCode = reinterpret_cast<const uint32_t *>(source.data());
+    module_ = device_.createShaderModule(create_info);
   }
+
   ~Shader() {
-    if (vert_module)
-      device.destroyShaderModule(std::exchange(vert_module, VK_NULL_HANDLE));
-
-    if (frag_module)
-      device.destroyShaderModule(std::exchange(frag_module, VK_NULL_HANDLE));
+    if (module_)
+      device_.destroyShaderModule(std::exchange(module_, VK_NULL_HANDLE));
   }
+
   Shader(const Shader &) = delete;
   Shader &operator=(const Shader &) = delete;
   Shader(Shader &&rhs) noexcept
-      : device(std::exchange(rhs.device, {})),
-        vert_module(std::exchange(rhs.vert_module, {})),
-        frag_module(std::exchange(rhs.frag_module, {})) {}
+      : device_(std::exchange(rhs.device_, {})),
+        module_(std::exchange(rhs.module_, {})) {}
   Shader &operator=(Shader &&rhs) noexcept {
     if (this != &rhs) {
-      if (vert_module)
-        device.destroyShaderModule(vert_module);
-      if (frag_module)
-        device.destroyShaderModule(frag_module);
+      if (module_)
+        device_.destroyShaderModule(module_);
+      device_ = std::exchange(rhs.device_, {});
+      module_ = std::exchange(rhs.module_, {});
+    }
+    return *this;
+  }
+  operator bool() const { return module_; }
+  auto module() const { return module_; }
+  auto stage() const { return stage_; }
+};
 
-      device = std::exchange(rhs.device, {});
-      vert_module = std::exchange(rhs.vert_module, {});
-      frag_module = std::exchange(rhs.frag_module, {});
+// 渲染管线
+class RenderProcess {
+  // vk::GraphicsPipelineCreateInfo和vk::ComputePipelineCreateInfo两种管线
+  vk::Pipeline pipeline_;
+
+public:
+  RenderProcess() = default;
+  ~RenderProcess() {}
+  RenderProcess(const RenderProcess &) = delete;
+  RenderProcess &operator=(const RenderProcess &) = delete;
+  RenderProcess(RenderProcess &&rhs) noexcept
+      : pipeline_(std::exchange(rhs.pipeline_, {})) {}
+  RenderProcess &operator=(RenderProcess &&rhs) noexcept {
+    if (this != &rhs) {
+      pipeline_ = std::exchange(rhs.pipeline_, {});
     }
     return *this;
   }
 
-  operator bool() const { return vert_module && frag_module; }
+  RenderProcess(vk::Device device, std::vector<Shader> shaders) {
+    vk::GraphicsPipelineCreateInfo create_info;
+    // 1. vertex input
+    vk::PipelineVertexInputStateCreateInfo vertex_input_info;
+    create_info.setPVertexInputState(&vertex_input_info);
+
+    // 2. Vertex assembly, 顶点如何组装成图元, 比如点, 线, 三角形等, 图元重启?
+    vk::PipelineInputAssemblyStateCreateInfo input_assembly_info;
+    input_assembly_info.setPrimitiveRestartEnable(false).setTopology(
+        vk::PrimitiveTopology::eTriangleList);
+    create_info.setPInputAssemblyState(&input_assembly_info);
+
+    // 3. Shader
+    for (auto &shader : shaders) {
+      vk::PipelineShaderStageCreateInfo shader_stage_info;
+      shader_stage_info.setStage(shader.stage())
+          .setModule(shader.module())
+          .setPName("main");
+    }
+
+    // 4. Rasterization, 光栅化阶段, 线框模式, 背面剔除, 深度测试等
+    vk::PipelineRasterizationStateCreateInfo rasterization_info;
+    rasterization_info.setRasterizerDiscardEnable(false)
+        .setCullMode(vk::CullModeFlagBits::eBack)
+        .setFrontFace(vk::FrontFace::eClockwise)
+        .setPolygonMode(vk::PolygonMode::eFill)
+        .setDepthClampEnable(false)
+        .setLineWidth(1.0f)
+        .setDepthBiasEnable(false);
+    create_info.setPRasterizationState(&rasterization_info);
+
+    // 5. Multisampling, 多重采样, 抗锯齿
+    vk::PipelineMultisampleStateCreateInfo multisample_info;
+    multisample_info.setRasterizationSamples(vk::SampleCountFlagBits::e1)
+        .setSampleShadingEnable(false);
+    create_info.setPMultisampleState(&multisample_info);
+
+    // 6. test - stencil, 深度测试和模板测试
+
+    // 7. color blending, 颜色混合, alpha混合等
+    vk::PipelineColorBlendStateCreateInfo blend_info;
+    vk::PipelineColorBlendAttachmentState blend_attachment;
+    blend_attachment.setBlendEnable(false).setColorWriteMask(
+        vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+        vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
+    blend_info.setLogicOpEnable(false).setAttachments(blend_attachment);
+    create_info.setPColorBlendState(&blend_info);
+
+    pipeline_ = device.createGraphicsPipeline({}, create_info).value;
+  }
 };
 
 class Context {
@@ -262,7 +322,13 @@ private:
 
   SwapChain swapchain;
 
-  Shader shader;
+  // Shader vert_shader;
+  // Shader frag_shader;
+
+  std::string vertex_shader_path;
+  std::string fragment_shader_path;
+
+  RenderProcess render_process;
 
 public:
   Context(const instance_extensions_t &instance_extensions,
@@ -295,7 +361,6 @@ public:
   }
 
   ~Context() {
-    shader = Shader{};
     swapchain = SwapChain{};
     // todo: 把device之类的也raii化才行
     device.destroy();
@@ -311,9 +376,23 @@ public:
 
   void init_shader(const std::string &vertex_path,
                    const std::string &fragment_path) {
-    auto vertex_source = helper::read_file(vertex_path);
-    auto fragment_source = helper::read_file(fragment_path);
-    shader = Shader(device, vertex_source, fragment_source);
+    // auto vertex_source = helper::read_file(vertex_path);
+    // auto fragment_source = helper::read_file(fragment_path);
+    // vert_shader =
+    //     Shader(device, vk::ShaderStageFlagBits::eVertex, vertex_source);
+    // frag_shader =
+    //     Shader(device, vk::ShaderStageFlagBits::eFragment, fragment_source);
+    vertex_shader_path = vertex_path;
+    fragment_shader_path = fragment_path;
+  }
+
+  void init_render_process() {
+    std::vector<Shader> shaders;
+    shaders.emplace_back(device, vk::ShaderStageFlagBits::eVertex,
+                         helper::read_file(vertex_shader_path));
+    shaders.emplace_back(device, vk::ShaderStageFlagBits::eFragment,
+                         helper::read_file(fragment_shader_path));
+    render_process = RenderProcess(device, std::move(shaders));
   }
 
 private:
