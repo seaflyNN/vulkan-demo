@@ -62,6 +62,9 @@ int main() {
   ctx->init_shader(shader_dir + "/vert.spv", shader_dir + "/frag.spv");
   ctx->init_render_process();
   ctx->create_framebuffers();
+  ctx->init_render();
+  // 画三角形
+  
   SDL_ShowWindow(window);
 
   bool running = true;
@@ -72,6 +75,8 @@ int main() {
         running = false;
       }
     }
+
+    ctx->render();
   }
 
   ctx.reset();

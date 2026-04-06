@@ -12,6 +12,7 @@
 #include <iostream>
 #include <optional>
 #include <ranges>
+#include <limits>
 #include <vector>
 
 namespace helper {
@@ -36,13 +37,6 @@ struct QueueFamilyIndices {
 };
 
 struct SwapChain {
-  vk::Device device;
-  vk::SwapchainKHR swapchain;
-
-  std::vector<vk::Image> images;
-  std::vector<vk::ImageView> image_views;
-
-public:
   struct SwapChainInfo {
     vk::SurfaceFormatKHR format;
     vk::Extent2D extent;
@@ -51,6 +45,14 @@ public:
     uint32_t image_count;
   };
 
+  vk::Device device;
+  vk::SwapchainKHR swapchain;
+
+  std::vector<vk::Image> images;
+  std::vector<vk::ImageView> image_views;
+  SwapChainInfo swapchain_info;
+
+public:
 public:
   SwapChain() {}
 
@@ -59,7 +61,7 @@ public:
       : device(device) {
     vk::SwapchainCreateInfoKHR create_info;
 
-    auto swapchain_info = query_swapchain_support(
+    swapchain_info = query_swapchain_support(
         phy_device, surface,
         vk::SurfaceFormatKHR{vk::Format::eB8G8R8A8Srgb,
                              vk::ColorSpaceKHR::eSrgbNonlinear},
@@ -91,6 +93,8 @@ public:
     }
 
     swapchain = device.createSwapchainKHR(create_info);
+    get_images_and_image_views();
+    get_views();
   }
 
   ~SwapChain() {
@@ -105,14 +109,24 @@ public:
   SwapChain &operator=(const SwapChain &) = delete;
   SwapChain(SwapChain &&rhs) noexcept
       : device(std::exchange(rhs.device, {})),
-        swapchain(std::exchange(rhs.swapchain, {})) {}
+        swapchain(std::exchange(rhs.swapchain, {})),
+        images(std::exchange(rhs.images, {})),
+        image_views(std::exchange(rhs.image_views, {})),
+        swapchain_info(std::exchange(rhs.swapchain_info, {})) {}
   SwapChain &operator=(SwapChain &&rhs) noexcept {
     if (this != &rhs) {
+      for (auto &view : image_views)
+        device.destroyImageView(view);
+      image_views.clear();
+
       if (*this)
         device.destroySwapchainKHR(swapchain);
 
       device = std::exchange(rhs.device, {});
       swapchain = std::exchange(rhs.swapchain, {});
+      images = std::exchange(rhs.images, {});
+      image_views = std::exchange(rhs.image_views, {});
+      swapchain_info = std::exchange(rhs.swapchain_info, {});
     }
     return *this;
   }
@@ -385,6 +399,71 @@ public:
   }
 };
 
+// 命令
+struct Render {
+  vk::Device device;
+  QueueFamilyIndices indices;
+  vk::CommandPool command_pool;
+  vk::CommandBuffer command_buffer;
+
+public:
+  Render() {}
+  Render(vk::Device device, QueueFamilyIndices indices)
+      : device(device), indices(indices) {
+    init_command_pool(indices);
+    alloc_command_buffer();
+  }
+  ~Render() {
+    if (command_pool) {
+      if (command_buffer)
+        device.freeCommandBuffers(command_pool,
+                                  std::exchange(command_buffer, {}));
+      device.destroyCommandPool(std::exchange(command_pool, VK_NULL_HANDLE));
+    }
+  }
+
+  Render(const Render &) = delete;
+  Render &operator=(const Render &) = delete;
+
+  Render(Render &&rhs) noexcept
+      : device(std::exchange(rhs.device, {})),
+        indices(std::exchange(rhs.indices, {})),
+        command_pool(std::exchange(rhs.command_pool, {})),
+        command_buffer(std::exchange(rhs.command_buffer, {})) {}
+
+  Render &operator=(Render &&rhs) noexcept {
+    if (this != &rhs) {
+      if (command_pool) {
+        if (command_buffer)
+          device.freeCommandBuffers(command_pool,
+                                    std::exchange(command_buffer, {}));
+        device.destroyCommandPool(std::exchange(command_pool, VK_NULL_HANDLE));
+      }
+
+      device = std::exchange(rhs.device, {});
+      indices = std::exchange(rhs.indices, {});
+      command_pool = std::exchange(rhs.command_pool, {});
+      command_buffer = std::exchange(rhs.command_buffer, {});
+    }
+    return *this;
+  }
+
+private:
+  void init_command_pool(const QueueFamilyIndices &indices) {
+    vk::CommandPoolCreateInfo create_info;
+    create_info.setQueueFamilyIndex(indices.graphics_family.value())
+        .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
+    command_pool = device.createCommandPool(create_info);
+  }
+  void alloc_command_buffer() {
+    vk::CommandBufferAllocateInfo alloc_info;
+    alloc_info.setCommandPool(command_pool)
+        .setLevel(vk::CommandBufferLevel::ePrimary)
+        .setCommandBufferCount(1);
+    command_buffer = device.allocateCommandBuffers(alloc_info)[0];
+  }
+};
+
 class Context {
 public:
   using instance_extensions_t = std::vector<const char *>;
@@ -416,6 +495,12 @@ private:
 
   std::vector<vk::Framebuffer> framebuffers;
 
+  Render renderer;
+
+  vk::Semaphore image_available_semaphore;
+  vk::Semaphore render_finished_semaphore;
+  vk::Fence in_flight_fence;
+
 public:
   Context(const instance_extensions_t &instance_extensions,
           create_surface_fn_t fn, int w, int h)
@@ -444,12 +529,28 @@ public:
 
     swapchain = SwapChain(phy_device, device, surface, que_family_indices,
                           /*w=*/width, /*h=*/height);
+
+    init_sync_objects();
   }
 
   ~Context() {
+    if (device) {
+      device.waitIdle();
+    }
+
     for (auto &framebuffer : framebuffers)
       device.destroyFramebuffer(framebuffer);
 
+    if (in_flight_fence)
+      device.destroyFence(std::exchange(in_flight_fence, VK_NULL_HANDLE));
+    if (image_available_semaphore)
+      device.destroySemaphore(
+          std::exchange(image_available_semaphore, VK_NULL_HANDLE));
+    if (render_finished_semaphore)
+      device.destroySemaphore(
+          std::exchange(render_finished_semaphore, VK_NULL_HANDLE));
+
+    renderer = Render{};
     render_process = RenderProcess{};
     swapchain = SwapChain{};
     // todo: 把device之类的也raii化才行
@@ -500,7 +601,76 @@ public:
     }
   }
 
+  void init_render() {
+    //
+    renderer = Render(device, que_family_indices);
+  }
+
+  void render() {
+    auto wait_result = device.waitForFences(in_flight_fence, true,
+                                            std::numeric_limits<uint64_t>::max());
+    assert(wait_result == vk::Result::eSuccess);
+    device.resetFences(in_flight_fence);
+
+    // 从交换链获取当前可用的图像索引
+    auto result = device.acquireNextImageKHR(
+      swapchain.swapchain, std::numeric_limits<uint64_t>::max(),
+      image_available_semaphore, {});
+    assert(result.result == vk::Result::eSuccess);
+    auto image_index = result.value;
+    auto &cmd_buf = renderer.command_buffer;
+    cmd_buf.reset();
+    cmd_buf.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+    {
+      cmd_buf.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                           render_process.pipeline_);
+      vk::RenderPassBeginInfo render_pass_info;
+      vk::Rect2D area{vk::Offset2D{0, 0}, swapchain.swapchain_info.extent};
+      vk::ClearValue clear_color(std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f});
+      render_pass_info.setRenderPass(render_process.render_pass_)
+          .setFramebuffer(framebuffers[image_index])
+          .setClearValues(clear_color)
+          .setRenderArea(area);
+      cmd_buf.beginRenderPass(render_pass_info, vk::SubpassContents::eInline);
+      {
+        cmd_buf.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                             render_process.pipeline_);
+        cmd_buf.draw(3, 1, 0, 0);
+      }
+      cmd_buf.endRenderPass();
+    }
+    cmd_buf.end();
+
+    vk::PipelineStageFlags wait_stage_mask =
+        vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    vk::SubmitInfo submit_info;
+    submit_info.setWaitSemaphores(image_available_semaphore)
+        .setWaitDstStageMask(wait_stage_mask)
+        .setCommandBuffers(cmd_buf)
+        .setSignalSemaphores(render_finished_semaphore);
+    graphic_que.submit(submit_info, in_flight_fence);
+
+    vk::PresentInfoKHR present_info;
+    present_info.setWaitSemaphores(render_finished_semaphore)
+        .setSwapchains(swapchain.swapchain)
+        .setImageIndices(image_index);
+    auto present_result = present_que.presentKHR(present_info);
+    assert(present_result == vk::Result::eSuccess ||
+           present_result == vk::Result::eSuboptimalKHR);
+    present_que.waitIdle();
+  }
+
 private:
+  void init_sync_objects() {
+    vk::SemaphoreCreateInfo semaphore_info;
+    image_available_semaphore = device.createSemaphore(semaphore_info);
+    render_finished_semaphore = device.createSemaphore(semaphore_info);
+
+    vk::FenceCreateInfo fence_info;
+    fence_info.setFlags(vk::FenceCreateFlagBits::eSignaled);
+    in_flight_fence = device.createFence(fence_info);
+  }
+
   static vk::Instance
   create_instance(const instance_extensions_t &instance_extensions) {
     vk::ApplicationInfo app_info;
