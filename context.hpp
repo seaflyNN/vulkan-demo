@@ -535,6 +535,7 @@ public:
 
   ~Context() {
     if (device) {
+      // 让cpu等到gpu所有操作完成, 再销毁程序
       device.waitIdle();
     }
 
