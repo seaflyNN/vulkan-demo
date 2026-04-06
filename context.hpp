@@ -657,6 +657,7 @@ public:
     auto present_result = present_que.presentKHR(present_info);
     assert(present_result == vk::Result::eSuccess ||
            present_result == vk::Result::eSuboptimalKHR);
+    // device.waitForFences(in_flight_fence, true, std::numeric_limits<uint64_t>::max());
     present_que.waitIdle();
   }
 
